@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Post, UsePipes } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, UsePipes } from '@nestjs/common';
 
 import { UserService } from './user.service';
 import { UserDTO } from './user.dto';
 import { ValidationPipe } from '../shared/validation.pipe';
+import { AuthGuard } from '../shared/auth.guard';
+import { User } from './user.decorator';
 
 @Controller('user')
 export class UserController {
@@ -12,7 +14,8 @@ export class UserController {
     ) {}
 
     @Get()
-    showAllUsers() {
+    @UseGuards(new AuthGuard())
+    showAllUsers(@User() user) {
         return this.userService.showAll();
     }
 
@@ -23,7 +26,7 @@ export class UserController {
     }
 
     @Post('register')
-    @UsePipes(new ValidationPipe)
+    @UsePipes(new ValidationPipe())
     register(@Body() data: UserDTO) {
         return this.userService.register(data);
     }
