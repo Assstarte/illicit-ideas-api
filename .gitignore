@@ -103,6 +103,9 @@ typings/
 # DynamoDB Local files
 .dynamodb/
 
+# WebStorm
+.idea
+
 ### VisualStudioCode ###
 .vscode/*
 !.vscode/settings.json
