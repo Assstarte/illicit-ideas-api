@@ -14,7 +14,9 @@ export class UserService {
     ) { }
 
     async showAll(): Promise<UserRO[]> {
-        const users = await this.userRepository.find();
+        const users = await this.userRepository.find({
+            relations: ['ideas']
+        });
 
         // While returning, we sanitize them w/ toResponseObject method implemented in UserEntity
         return users.map((user) => {
