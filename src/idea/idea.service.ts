@@ -2,9 +2,11 @@ import { Injectable, HttpException, HttpStatus, ParseUUIDPipe, BadRequestExcepti
 import { Repository } from 'typeorm';
 import { IdeaEntity } from './idea.entity';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { IdeaDTO, IdeaRO } from './idea.dto';
 import { isUUID } from '@nestjs/common/utils/is-uuid'
 import { UserEntity } from '../user/user.entity';
+import { Votes } from '../shared/votes.enum';
 
 @Injectable()
 export class IdeaService {
@@ -18,7 +20,9 @@ export class IdeaService {
     private toResponseObject(idea: IdeaEntity): IdeaRO {
         return {
             ...idea,
-            author: idea.author.toResponseObject(false)
+            author: idea.author.toResponseObject(false),
+            upvotes: idea.upvotes || null,
+            downvotes: idea.downvotes || null
         };
     }
 
@@ -28,10 +32,33 @@ export class IdeaService {
         }
     }
 
+    private async vote(idea: IdeaEntity, user: UserEntity, vote: Votes) {
+        // Check if the vote was already triggered and act accordingly
+        const opposite = vote === Votes.UP ? Votes.DOWN : Votes.UP;
+
+        if (
+            idea[opposite].filter(voter => voter.id === user.id).length > 0 ||
+            idea[vote].filter(voter => voter.id === user.id).length > 0
+        ) {
+            idea[opposite] = idea[opposite].filter(voter => voter.id !== user.id);
+            idea[vote] = idea[vote].filter(voter => voter.id !== user.id);
+            await this.ideaRepository.save(idea);
+        } else if (
+            idea[vote].filter(voter => voter.id === user.id).length < 1
+        ) {
+            idea[vote].push(user);
+            await this.ideaRepository.save(idea);
+        } else {
+            throw new HttpException('Unable to cast vote', HttpStatus.BAD_REQUEST);
+        }
+
+        return idea;
+    }
+
     async showAll(): Promise<IdeaRO[]> {
 
         const ideas = await this.ideaRepository.find({
-            relations: ['author']
+            relations: ['author', 'upvotes', 'downvotes']
         });
         return ideas.map((idea) => {
             return this.toResponseObject(idea);
@@ -59,7 +86,7 @@ export class IdeaService {
         if (idIsValid) {
             const idea = await this.ideaRepository.findOne({
                 where: { id },
-                relations: ['author']
+                relations: ['author', 'upvotes', 'downvotes']
             });
 
             if (!idea) {
@@ -121,5 +148,89 @@ export class IdeaService {
         } else {
             throw new BadRequestException('', 'Invalid ID syntax. Should be UUID');
         }
+    }
+
+    async upvote(id: string, userId: string) {
+        let idea = await this.ideaRepository.findOne({
+            where: {
+                id
+            },
+            relations: ['author', 'upvotes', 'downvotes']
+        });
+
+        const user = await this.userRepository.findOne({
+            where: {
+                id: userId
+            }
+        });
+
+        idea = await this.vote(idea, user, Votes.UP);
+        return this.toResponseObject(idea);
+    }
+
+    async downvote(id: string, userId: string) {
+        let idea = await this.ideaRepository.findOne({
+            where: {
+                id
+            },
+            relations: ['author', 'upvotes', 'downvotes']
+        });
+
+        const user = await this.userRepository.findOne({
+            where: {
+                id: userId
+            }
+        });
+
+        idea = await this.vote(idea, user, Votes.DOWN);
+        return this.toResponseObject(idea);
+    }
+
+    async bookmark(id: string, userId: string) {
+        const idea = await this.ideaRepository.findOne({
+            where: {
+                id
+            }
+        });
+
+        const user = await this.userRepository.findOne({
+            where: {
+                id: userId
+            },
+            relations: ['bookmarks']
+        });
+
+        if (user.bookmarks.filter(bookmark => bookmark.id === idea.id).length < 1) {
+            user.bookmarks.push(idea);
+            await this.userRepository.save(user);
+        } else {
+            throw new HttpException('Idea already bookmarked', HttpStatus.BAD_REQUEST);
+        }
+
+        return user.toResponseObject();
+    }
+
+    async unbookmark(id: string, userId: string) {
+        const idea = await this.ideaRepository.findOne({
+            where: {
+                id
+            }
+        });
+
+        const user = await this.userRepository.findOne({
+            where: {
+                id: userId
+            },
+            relations: ['bookmarks']
+        });
+
+        if (user.bookmarks.filter(bookmark => bookmark.id === idea.id).length > 0) {
+            user.bookmarks = user.bookmarks.filter(bookmark => bookmark.id !== idea.id);
+            await this.userRepository.save(user);
+        } else {
+            throw new HttpException('Idea is not bookmarked', HttpStatus.BAD_REQUEST);
+        }
+
+        return user.toResponseObject();
     }
 }
